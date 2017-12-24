@@ -6,5 +6,5 @@ rm -rf test.log
 
 for t in `ls tests`
 do
-    go test tests/$t >> test.log
+    go test tests/$t | tee test.log
 done

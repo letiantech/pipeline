@@ -1,16 +1,12 @@
-package test
+package main
 
 import (
+	"fmt"
 	"pipeline"
-	"testing"
-
 	"reflect"
-
-	. "github.com/smartystreets/goconvey/convey"
 )
 
-// TestPipeline is used to test pipeline.PipeLine
-func TestPipeline(t *testing.T) {
+func main() {
 	type TestType2 struct {
 		A string
 	}
@@ -26,6 +22,7 @@ func TestPipeline(t *testing.T) {
 		PoolSize:   2,
 		Type:       reflect.TypeOf(&TestType1{}),
 		Func: func(data interface{}) interface{} {
+			fmt.Println(data)
 			d := data.(*TestType1)
 			d.A++
 			if d.A%2 == 0 {
@@ -44,6 +41,7 @@ func TestPipeline(t *testing.T) {
 				PoolSize:   1,
 				Type:       reflect.TypeOf(&TestType1{}),
 				Func: func(data interface{}) interface{} {
+					fmt.Println(data)
 					ch1 <- data
 					return data
 				},
@@ -55,6 +53,7 @@ func TestPipeline(t *testing.T) {
 				PoolSize:   1,
 				Type:       reflect.TypeOf(&TestType2{}),
 				Func: func(data interface{}) interface{} {
+					fmt.Println(data)
 					ch2 <- data
 					return data
 				},
@@ -63,24 +62,14 @@ func TestPipeline(t *testing.T) {
 	}
 	p, err := pipeline.NewPipeline(cfg)
 	if err != nil {
-		Convey("Subject: Test Station Endpoint\n", t, func() {
-			Convey("Value Should Be nil", func() {
-				So(err, ShouldEqual, nil)
-			})
-		})
+		fmt.Println(err)
 	}
 	data := &TestType1{A: 1}
 	p.Push(data)
 	p.Push(data)
 	v1 := <-ch1
 	v2 := <-ch2
-	Convey("Subject: Test Station Endpoint\n", t, func() {
-		Convey("Value Should Be *TestType1", func() {
-			So(reflect.TypeOf(v1), ShouldEqual, reflect.TypeOf(&TestType1{}))
-		})
-		Convey("Value Should Be *TestType2", func() {
-			So(reflect.TypeOf(v2), ShouldEqual, reflect.TypeOf(&TestType2{}))
-		})
-	})
+	fmt.Println(v1)
+	fmt.Println(v2)
 	p.DestroyAll()
 }
