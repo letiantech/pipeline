@@ -9,9 +9,9 @@ import (
 )
 
 const (
-	StateClosed    = 0
-	StateOpened    = 1
-	StateDestroyed = 3
+	stateClosed = iota
+	stateOpened
+	stateDestroyed
 )
 
 const (
@@ -27,12 +27,6 @@ var _ Pipeline = &pipeline{}
 var allCreators = make(map[string]func(*Config) (Pipeline, error))
 var typeOfTask = reflect.TypeOf(Task{})
 
-type Task struct {
-	finished bool
-	ch       chan interface{}
-	data     interface{}
-}
-
 type Pipeline interface {
 	Open()
 	Close()
@@ -44,7 +38,6 @@ type Pipeline interface {
 	IsDestroyed() bool
 	Type() reflect.Type
 	Push(data interface{})
-	PushTask(data interface{}) *Task
 }
 
 type Config struct {
@@ -62,7 +55,7 @@ type pipeline struct {
 	next    map[reflect.Type]Pipeline
 	stat    int32
 	stage   int32
-	buffer  chan interface{}
+	buffer  *SafeChan
 	wg      sync.WaitGroup
 	limiter Limiter
 }
@@ -92,7 +85,7 @@ func basePipelineCreator(cfg *Config) (Pipeline, error) {
 	if p.cfg.PoolSize < 1 {
 		return nil, errors.New("pipeline pool size must greater than 0")
 	}
-	p.buffer = make(chan interface{}, p.cfg.BufferSize)
+	p.buffer = NewSafeChan(cfg.BufferSize, nil)
 	p.next = make(map[reflect.Type]Pipeline)
 	for _, c := range cfg.NextConfigs {
 		np, err := NewPipeline(c)
@@ -113,7 +106,7 @@ func (p *pipeline) Open() {
 	if p.IsOpened() {
 		return
 	}
-	atomic.StoreInt32(&p.stat, StateOpened)
+	atomic.StoreInt32(&p.stat, stateOpened)
 }
 
 func (p *pipeline) Close() {
@@ -121,15 +114,15 @@ func (p *pipeline) Close() {
 		return
 	}
 
-	atomic.StoreInt32(&p.stat, StateClosed)
+	atomic.StoreInt32(&p.stat, stateClosed)
 }
 
 func (p *pipeline) Destroy() {
 	if p.IsDestroyed() {
 		return
 	}
-	atomic.StoreInt32(&p.stat, StateDestroyed)
-	CloseChan(p.buffer)
+	atomic.StoreInt32(&p.stat, stateDestroyed)
+	p.buffer.Close()
 	p.wg.Wait()
 }
 
@@ -151,16 +144,7 @@ func (p *pipeline) Push(data interface{}) {
 	if p.IsDestroyed() || p.dataType(data) != p.cfg.Type {
 		return
 	}
-	p.buffer <- data
-}
-
-func (p *pipeline) PushTask(data interface{}) *Task {
-	if p.IsDestroyed() || reflect.TypeOf(data) != p.cfg.Type {
-		return nil
-	}
-	t := NewTask(data)
-	p.buffer <- t
-	return &t
+	p.buffer.Push(data)
 }
 
 func (p *pipeline) SetSpeed(speed float32) {
@@ -168,22 +152,22 @@ func (p *pipeline) SetSpeed(speed float32) {
 }
 
 func (p *pipeline) IsClosed() bool {
-	return atomic.LoadInt32(&p.stat) == StateClosed
+	return atomic.LoadInt32(&p.stat) == stateClosed
 }
 
 func (p *pipeline) IsOpened() bool {
-	return atomic.LoadInt32(&p.stat) == StateOpened
+	return atomic.LoadInt32(&p.stat) == stateOpened
 }
 
 func (p *pipeline) IsDestroyed() bool {
-	return atomic.LoadInt32(&p.stat) == StateDestroyed
+	return atomic.LoadInt32(&p.stat) == stateDestroyed
 }
 
 func (p *pipeline) dataType(data interface{}) reflect.Type {
 	rt := reflect.TypeOf(data)
 	if rt == typeOfTask {
 		t := data.(Task)
-		rt = reflect.TypeOf(t.GetData())
+		rt = reflect.TypeOf(t.getData())
 	}
 	return rt
 }
@@ -205,7 +189,7 @@ func (p *pipeline) run() {
 			}
 			stage = stageGetting
 		case stageGetting:
-			data = <-p.buffer
+			data = p.buffer.Get()
 			stage = stageExecuting
 			if data == nil {
 				stage = stageExiting
@@ -214,7 +198,7 @@ func (p *pipeline) run() {
 			if p.cfg.Func != nil {
 				if reflect.TypeOf(data) == typeOfTask {
 					t := data.(Task)
-					t.update(p.cfg.Func(t.GetData()))
+					t.update(p.cfg.Func(t.getData()))
 					data = t
 				} else {
 					data = p.cfg.Func(data)
@@ -224,7 +208,7 @@ func (p *pipeline) run() {
 		case stagePushing:
 			if reflect.TypeOf(data) == typeOfTask {
 				t := data.(Task)
-				np := p.next[reflect.TypeOf(t.GetData())]
+				np := p.next[reflect.TypeOf(t.getData())]
 				if np != nil {
 					np.Push(data)
 				} else {
@@ -247,24 +231,6 @@ func (p *pipeline) run() {
 		}
 		if p.IsClosed() {
 			stage = stageSleeping
-		}
-	}
-}
-
-func CloseChan(ch chan interface{}) {
-	duration := 10 * time.Millisecond
-	t := time.NewTimer(duration)
-	for {
-		select {
-		case _, ok := <-ch:
-			if !ok {
-				return
-			}
-			t.Reset(duration)
-			break
-		case <-t.C:
-			close(ch)
-			return
 		}
 	}
 }

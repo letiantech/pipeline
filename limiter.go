@@ -6,10 +6,14 @@ import (
 )
 
 const (
+	//the slowest limited speed
 	MinLimitedSpeed = 0.001
+	//the fastest limited speed
 	MaxLimitedSpeed = 1000.0
 )
 
+//Limiter is used to limit speed of pipeline
+//by providing a time duration
 type Limiter struct {
 	duration  int64
 	nextTime  int64
@@ -17,6 +21,7 @@ type Limiter struct {
 	unlimited int32
 }
 
+//create a new limiter and set its speed
 func NewLimiter(speed float32) *Limiter {
 	l := &Limiter{
 		nextTime: time.Now().UnixNano() / int64(time.Millisecond),
@@ -25,6 +30,7 @@ func NewLimiter(speed float32) *Limiter {
 	return l
 }
 
+//update the time duration of limiter
 func (l *Limiter) Update() time.Duration {
 	duration := atomic.LoadInt64(&l.duration)
 	if duration <= 0 {
@@ -48,6 +54,7 @@ func (l *Limiter) Update() time.Duration {
 	return time.Duration(delta)
 }
 
+//set speed of limiter
 func (l *Limiter) SetSpeed(speed float32) {
 	if speed < 0 || speed > MaxLimitedSpeed {
 		atomic.StoreInt64(&l.duration, 0)

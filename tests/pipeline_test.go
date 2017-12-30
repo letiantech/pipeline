@@ -92,18 +92,11 @@ func TestPipeline(t *testing.T) {
 	data1 := &TestType1{A: 1}
 	p.Push(data1)
 	data2 := &TestType1{A: 2}
-	dt := p.PushTask(data2)
-	var v1, v2, v3 interface{} = nil, nil, nil
-	for i := 0; i < 3; i++ {
-		select {
-		case v3 = <-dt.Chan():
-			break
-		case v1 = <-ch1:
-			break
-		case v2 = <-ch2:
-			break
-		}
-	}
+	dt := pipeline.NewTask(data2, true)
+	p.Push(dt)
+	v1 := <-ch1
+	v2 := <-ch2
+	v3 := <-dt.Chan()
 	Convey("Subject: Test Station Endpoint\n", t, func() {
 		Convey("v1 Should Be *TestType1", func() {
 			So(reflect.TypeOf(v1), ShouldEqual, reflect.TypeOf(&TestType1{}))

@@ -1,41 +1,70 @@
 package pipeline
 
-import "time"
+//Task is used to perform a sync request in pipeline
+type Task struct {
+	finished bool
+	ch       *SafeChan
+	data     interface{}
+	auto     bool
+}
 
-func NewTask(data interface{}) Task {
+// Create new task by data.
+//
+// Notice:
+// If auto is true, the task will close the channel of task automatic when finished.
+// If auto is false, you must close the channel by using t.Destroy()
+//
+// Example:
+//  //create new task
+//  t := NewTask(data, true)
+//  //push the task into a pipeline
+//  pl.Push(t)
+//  //wait the result
+//  result := <-t.Chan()  //or using  result := t.Wait()
+func NewTask(data interface{}, auto bool) Task {
 	t := Task{
-		ch:       make(chan interface{}, 1),
+		ch:       NewSafeChan(1, nil),
 		finished: false,
 		data:     data,
+		auto:     auto,
 	}
 	return t
 }
 
+// Get the result channel of a task.
+//
+// Notice:
+// The result channel of a task will be closed automatic when finished,
+// so be careful when waiting multi channel by using select in a loop
 func (t *Task) Chan() <-chan interface{} {
-	return t.ch
+	return t.ch.Chan()
 }
 
-func (t *Task) WaitData() interface{} {
-	return <-t.ch
+//Wait the result of a task
+func (t *Task) Wait() interface{} {
+	return t.ch.Get()
 }
 
+//Destroy a finished task
 func (t *Task) Destroy() {
-	close(t.ch)
+	t.ch.Close()
 }
 
+//get the data of task
+func (t *Task) getData() interface{} {
+	return t.data
+}
+
+//update the data of task
 func (t *Task) update(data interface{}) {
 	t.data = data
 }
 
-func (t *Task) GetData() interface{} {
-	return t.data
-}
-
+//finish task. If auto is true, close channel automatic.
 func (t *Task) finish() {
 	t.finished = true
-	t.ch <- t.data
-	go func() {
-		time.Sleep(200 * time.Millisecond)
-		close(t.ch)
-	}()
+	t.ch.Push(t.data)
+	if t.auto {
+		t.ch.Close()
+	}
 }

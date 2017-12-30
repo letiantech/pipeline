@@ -1,7 +1,6 @@
 package test
 
 import (
-	"fmt"
 	"pipeline"
 	"testing"
 
@@ -14,19 +13,13 @@ import (
 
 // TestPipeline is used to test pipeline.PipeLine
 func TestPipelineStress(t *testing.T) {
-	type TestType2 struct {
-		A string
-	}
 	type TestType1 struct {
-		A int
-	}
-	type TestType3 struct {
 		A int
 	}
 	cfg := &pipeline.Config{
 		Name:       "base",
-		BufferSize: 100,
-		PoolSize:   100,
+		BufferSize: 1000,
+		PoolSize:   1000,
 		Type:       reflect.TypeOf(&TestType1{}),
 		Func: func(data interface{}) interface{} {
 			time.Sleep(10 * time.Millisecond)
@@ -42,22 +35,21 @@ func TestPipelineStress(t *testing.T) {
 		})
 	}
 	start := time.Now().UnixNano()
-	var task *pipeline.Task
+	var task pipeline.Task
 	for i := 0; i < 1000000; i++ {
 		data0 := &TestType1{A: i}
-		task = p.PushTask(data0)
+		task = pipeline.NewTask(data0, true)
+		p.Push(task)
 	}
 	end := time.Now().UnixNano()
-	var v1 interface{}
 	select {
-	case v1 = <-task.Chan():
+	case <-task.Chan():
 		end = time.Now().UnixNano()
 	}
-	dt := (end - start) / 1000000
-	fmt.Println(dt)
+	dt := (end - start) / 1000000000
 	Convey("Subject: Test Station Endpoint\n", t, func() {
 		Convey("v1 Should Be *TestType1", func() {
-			So(reflect.TypeOf(v1), ShouldEqual, reflect.TypeOf(&TestType1{}))
+			So(dt, ShouldEqual, 10)
 		})
 	})
 	p.DestroyAll()
