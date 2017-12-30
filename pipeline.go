@@ -21,7 +21,7 @@ const (
 	stageExiting
 )
 
-var _ Pipeline = &pipeline{}
+var _ Pipeline = &BasePipeline{}
 
 var allCreators = make(map[string]func(*Config) (Pipeline, error))
 var typeOfTask = reflect.TypeOf(Task{})
@@ -45,12 +45,12 @@ type Config struct {
 	NextConfigs []*Config
 }
 
-type pipeline struct {
+type BasePipeline struct {
 	cfg     Config
 	next    map[reflect.Type]Pipeline
 	state   int32
 	stage   int32
-	buffer  SafeChan
+	buffer  *SafeChan
 	wg      sync.WaitGroup
 	limiter Limiter
 }
@@ -72,7 +72,7 @@ func NewPipeline(cfg *Config) (Pipeline, error) {
 }
 
 func basePipelineCreator(cfg *Config) (Pipeline, error) {
-	p := &pipeline{}
+	p := &BasePipeline{}
 	p.cfg = *cfg
 	if p.cfg.BufferSize < 1 {
 		return nil, errors.New("pipeline buffer size must greater than 0")
@@ -97,7 +97,7 @@ func basePipelineCreator(cfg *Config) (Pipeline, error) {
 	return p, nil
 }
 
-func (p *pipeline) Close() {
+func (p *BasePipeline) Close() {
 	if !atomic.CompareAndSwapInt32(&p.state, stateOpened, stateClosed) {
 		return
 	}
@@ -105,7 +105,7 @@ func (p *pipeline) Close() {
 	p.wg.Wait()
 }
 
-func (p *pipeline) CloseAll() {
+func (p *BasePipeline) CloseAll() {
 	if p.IsClosed() {
 		return
 	}
@@ -115,26 +115,26 @@ func (p *pipeline) CloseAll() {
 	}
 }
 
-func (p *pipeline) Type() reflect.Type {
+func (p *BasePipeline) Type() reflect.Type {
 	return p.cfg.Type
 }
 
-func (p *pipeline) Push(data interface{}) {
+func (p *BasePipeline) Push(data interface{}) {
 	if p.IsClosed() || p.dataType(data) != p.cfg.Type {
 		return
 	}
 	p.buffer.Push(data)
 }
 
-func (p *pipeline) SetSpeed(speed float32) {
+func (p *BasePipeline) SetSpeed(speed float32) {
 	p.limiter.SetSpeed(speed)
 }
 
-func (p *pipeline) IsClosed() bool {
+func (p *BasePipeline) IsClosed() bool {
 	return atomic.LoadInt32(&p.state) == stateClosed
 }
 
-func (p *pipeline) dataType(data interface{}) reflect.Type {
+func (p *BasePipeline) dataType(data interface{}) reflect.Type {
 	rt := reflect.TypeOf(data)
 	if rt == typeOfTask {
 		t := data.(Task)
@@ -143,7 +143,7 @@ func (p *pipeline) dataType(data interface{}) reflect.Type {
 	return rt
 }
 
-func (p *pipeline) run() {
+func (p *BasePipeline) run() {
 	defer p.wg.Done()
 	var data interface{}
 	p.wg.Add(1)

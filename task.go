@@ -5,7 +5,7 @@ import "sync/atomic"
 //Task is used to perform a sync request in pipeline
 type Task struct {
 	finished int32
-	ch       SafeChan
+	ch       *SafeChan
 	data     interface{}
 	auto     bool
 }
