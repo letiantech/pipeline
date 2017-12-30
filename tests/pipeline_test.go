@@ -108,5 +108,5 @@ func TestPipeline(t *testing.T) {
 			So(reflect.TypeOf(v3), ShouldEqual, reflect.TypeOf(&TestType3{}))
 		})
 	})
-	p.DestroyAll()
+	p.CloseAll()
 }

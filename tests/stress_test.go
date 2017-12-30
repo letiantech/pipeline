@@ -52,5 +52,5 @@ func TestPipelineStress(t *testing.T) {
 			So(dt, ShouldEqual, 10)
 		})
 	})
-	p.DestroyAll()
+	p.CloseAll()
 }

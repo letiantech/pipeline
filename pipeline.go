@@ -9,9 +9,8 @@ import (
 )
 
 const (
-	stateClosed = iota
-	stateOpened
-	stateDestroyed
+	stateOpened = iota
+	stateClosed
 )
 
 const (
@@ -28,14 +27,10 @@ var allCreators = make(map[string]func(*Config) (Pipeline, error))
 var typeOfTask = reflect.TypeOf(Task{})
 
 type Pipeline interface {
-	Open()
 	Close()
-	Destroy()
-	DestroyAll()
+	CloseAll()
 	SetSpeed(speed float32)
-	IsOpened() bool
 	IsClosed() bool
-	IsDestroyed() bool
 	Type() reflect.Type
 	Push(data interface{})
 }
@@ -53,9 +48,9 @@ type Config struct {
 type pipeline struct {
 	cfg     Config
 	next    map[reflect.Type]Pipeline
-	stat    int32
+	state   int32
 	stage   int32
-	buffer  *SafeChan
+	buffer  SafeChan
 	wg      sync.WaitGroup
 	limiter Limiter
 }
@@ -90,49 +85,33 @@ func basePipelineCreator(cfg *Config) (Pipeline, error) {
 	for _, c := range cfg.NextConfigs {
 		np, err := NewPipeline(c)
 		if err != nil {
-			p.DestroyAll()
+			p.CloseAll()
 			return nil, err
 		}
 		p.next[c.Type] = np
 	}
-	p.Open()
+	p.state = stateOpened
 	for i := 0; i < p.cfg.PoolSize; i++ {
 		go p.run()
 	}
 	return p, nil
 }
 
-func (p *pipeline) Open() {
-	if p.IsOpened() {
-		return
-	}
-	atomic.StoreInt32(&p.stat, stateOpened)
-}
-
 func (p *pipeline) Close() {
-	if !p.IsOpened() {
+	if !atomic.CompareAndSwapInt32(&p.state, stateOpened, stateClosed) {
 		return
 	}
-
-	atomic.StoreInt32(&p.stat, stateClosed)
-}
-
-func (p *pipeline) Destroy() {
-	if p.IsDestroyed() {
-		return
-	}
-	atomic.StoreInt32(&p.stat, stateDestroyed)
 	p.buffer.Close()
 	p.wg.Wait()
 }
 
-func (p *pipeline) DestroyAll() {
-	if p.IsDestroyed() {
+func (p *pipeline) CloseAll() {
+	if p.IsClosed() {
 		return
 	}
-	p.Destroy()
+	p.Close()
 	for _, v := range p.next {
-		v.DestroyAll()
+		v.CloseAll()
 	}
 }
 
@@ -141,7 +120,7 @@ func (p *pipeline) Type() reflect.Type {
 }
 
 func (p *pipeline) Push(data interface{}) {
-	if p.IsDestroyed() || p.dataType(data) != p.cfg.Type {
+	if p.IsClosed() || p.dataType(data) != p.cfg.Type {
 		return
 	}
 	p.buffer.Push(data)
@@ -152,15 +131,7 @@ func (p *pipeline) SetSpeed(speed float32) {
 }
 
 func (p *pipeline) IsClosed() bool {
-	return atomic.LoadInt32(&p.stat) == stateClosed
-}
-
-func (p *pipeline) IsOpened() bool {
-	return atomic.LoadInt32(&p.stat) == stateOpened
-}
-
-func (p *pipeline) IsDestroyed() bool {
-	return atomic.LoadInt32(&p.stat) == stateDestroyed
+	return atomic.LoadInt32(&p.state) == stateClosed
 }
 
 func (p *pipeline) dataType(data interface{}) reflect.Type {
@@ -180,11 +151,7 @@ func (p *pipeline) run() {
 	for {
 		switch stage {
 		case stageSleeping:
-			duration := 10 * time.Millisecond
-			if p.IsOpened() {
-				duration = p.limiter.Update()
-			}
-			if duration > 0 {
+			if duration := p.limiter.Update(); duration > 0 {
 				time.Sleep(duration)
 			}
 			stage = stageGetting
@@ -226,11 +193,8 @@ func (p *pipeline) run() {
 		default:
 			stage = stageSleeping
 		}
-		if p.IsDestroyed() || stage == stageExiting {
+		if p.IsClosed() || stage == stageExiting {
 			return
-		}
-		if p.IsClosed() {
-			stage = stageSleeping
 		}
 	}
 }

@@ -1,9 +1,11 @@
 package pipeline
 
+import "sync/atomic"
+
 //Task is used to perform a sync request in pipeline
 type Task struct {
-	finished bool
-	ch       *SafeChan
+	finished int32
+	ch       SafeChan
 	data     interface{}
 	auto     bool
 }
@@ -24,7 +26,7 @@ type Task struct {
 func NewTask(data interface{}, auto bool) Task {
 	t := Task{
 		ch:       NewSafeChan(1, nil),
-		finished: false,
+		finished: 0,
 		data:     data,
 		auto:     auto,
 	}
@@ -62,7 +64,9 @@ func (t *Task) update(data interface{}) {
 
 //finish task. If auto is true, close channel automatic.
 func (t *Task) finish() {
-	t.finished = true
+	if !atomic.CompareAndSwapInt32(&t.finished, 0, 1) {
+		return
+	}
 	t.ch.Push(t.data)
 	if t.auto {
 		t.ch.Close()
