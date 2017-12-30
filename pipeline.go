@@ -19,11 +19,19 @@ const (
 	stageGetting
 	stageExecuting
 	stagePushing
+	stageExiting
 )
 
 var _ Pipeline = &pipeline{}
 
 var allCreators = make(map[string]func(*Config) (Pipeline, error))
+var typeOfTask = reflect.TypeOf(Task{})
+
+type Task struct {
+	finished bool
+	ch       chan interface{}
+	data     interface{}
+}
 
 type Pipeline interface {
 	Open()
@@ -36,6 +44,7 @@ type Pipeline interface {
 	IsDestroyed() bool
 	Type() reflect.Type
 	Push(data interface{})
+	PushTask(data interface{}) *Task
 }
 
 type Config struct {
@@ -52,6 +61,7 @@ type pipeline struct {
 	cfg     Config
 	next    map[reflect.Type]Pipeline
 	stat    int32
+	stage   int32
 	buffer  chan interface{}
 	wg      sync.WaitGroup
 	limiter Limiter
@@ -138,10 +148,19 @@ func (p *pipeline) Type() reflect.Type {
 }
 
 func (p *pipeline) Push(data interface{}) {
-	if p.IsDestroyed() || reflect.TypeOf(data) != p.cfg.Type {
+	if p.IsDestroyed() || p.dataType(data) != p.cfg.Type {
 		return
 	}
 	p.buffer <- data
+}
+
+func (p *pipeline) PushTask(data interface{}) *Task {
+	if p.IsDestroyed() || reflect.TypeOf(data) != p.cfg.Type {
+		return nil
+	}
+	t := NewTask(data)
+	p.buffer <- t
+	return &t
 }
 
 func (p *pipeline) SetSpeed(speed float32) {
@@ -160,22 +179,13 @@ func (p *pipeline) IsDestroyed() bool {
 	return atomic.LoadInt32(&p.stat) == StateDestroyed
 }
 
-func CloseChan(ch chan interface{}) {
-	duration := 10 * time.Millisecond
-	t := time.NewTimer(duration)
-	for {
-		select {
-		case _, ok := <-ch:
-			if !ok {
-				return
-			}
-			t.Reset(duration)
-			break
-		case <-t.C:
-			close(ch)
-			return
-		}
+func (p *pipeline) dataType(data interface{}) reflect.Type {
+	rt := reflect.TypeOf(data)
+	if rt == typeOfTask {
+		t := data.(Task)
+		rt = reflect.TypeOf(t.GetData())
 	}
+	return rt
 }
 
 func (p *pipeline) run() {
@@ -196,29 +206,65 @@ func (p *pipeline) run() {
 			stage = stageGetting
 		case stageGetting:
 			data = <-p.buffer
-			if data == nil {
-				return
-			}
 			stage = stageExecuting
+			if data == nil {
+				stage = stageExiting
+			}
 		case stageExecuting:
 			if p.cfg.Func != nil {
-				data = p.cfg.Func(data)
+				if reflect.TypeOf(data) == typeOfTask {
+					t := data.(Task)
+					t.update(p.cfg.Func(t.GetData()))
+					data = t
+				} else {
+					data = p.cfg.Func(data)
+				}
 			}
 			stage = stagePushing
 		case stagePushing:
-			np := p.next[reflect.TypeOf(data)]
-			if np != nil {
-				np.Push(data)
+			if reflect.TypeOf(data) == typeOfTask {
+				t := data.(Task)
+				np := p.next[reflect.TypeOf(t.GetData())]
+				if np != nil {
+					np.Push(data)
+				} else {
+					t.finish()
+				}
+			} else {
+				np := p.next[reflect.TypeOf(data)]
+				if np != nil {
+					np.Push(data)
+				}
 			}
 			stage = stageSleeping
+		case stageExiting:
+			return
 		default:
 			stage = stageSleeping
 		}
-		if p.IsDestroyed() {
+		if p.IsDestroyed() || stage == stageExiting {
 			return
 		}
 		if p.IsClosed() {
 			stage = stageSleeping
+		}
+	}
+}
+
+func CloseChan(ch chan interface{}) {
+	duration := 10 * time.Millisecond
+	t := time.NewTimer(duration)
+	for {
+		select {
+		case _, ok := <-ch:
+			if !ok {
+				return
+			}
+			t.Reset(duration)
+			break
+		case <-t.C:
+			close(ch)
+			return
 		}
 	}
 }

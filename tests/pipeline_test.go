@@ -17,6 +17,9 @@ func TestPipeline(t *testing.T) {
 	type TestType1 struct {
 		A int
 	}
+	type TestType3 struct {
+		A int
+	}
 	ch1 := make(chan interface{}, 1)
 	ch2 := make(chan interface{}, 1)
 	cfg := &pipeline.Config{
@@ -27,13 +30,16 @@ func TestPipeline(t *testing.T) {
 		Type:       reflect.TypeOf(&TestType1{}),
 		Func: func(data interface{}) interface{} {
 			d := data.(*TestType1)
-			d.A++
-			if d.A%2 == 0 {
+			switch d.A % 3 {
+			case 0:
 				return d
-			} else {
+			case 1:
 				return &TestType2{
 					A: "abc",
 				}
+			}
+			return &TestType3{
+				A: d.A + 1,
 			}
 		},
 		NextConfigs: []*pipeline.Config{
@@ -59,6 +65,18 @@ func TestPipeline(t *testing.T) {
 					return data
 				},
 			},
+			{
+				Name:       "base",
+				Speed:      2,
+				BufferSize: 2,
+				PoolSize:   1,
+				Type:       reflect.TypeOf(&TestType3{}),
+				Func: func(data interface{}) interface{} {
+					t := data.(*TestType3)
+					t.A = 3
+					return data
+				},
+			},
 		},
 	}
 	p, err := pipeline.NewPipeline(cfg)
@@ -69,17 +87,32 @@ func TestPipeline(t *testing.T) {
 			})
 		})
 	}
-	data := &TestType1{A: 1}
-	p.Push(data)
-	p.Push(data)
-	v1 := <-ch1
-	v2 := <-ch2
+	data0 := &TestType1{A: 0}
+	p.Push(data0)
+	data1 := &TestType1{A: 1}
+	p.Push(data1)
+	data2 := &TestType1{A: 2}
+	dt := p.PushTask(data2)
+	var v1, v2, v3 interface{} = nil, nil, nil
+	for i := 0; i < 3; i++ {
+		select {
+		case v3 = <-dt.Chan():
+			break
+		case v1 = <-ch1:
+			break
+		case v2 = <-ch2:
+			break
+		}
+	}
 	Convey("Subject: Test Station Endpoint\n", t, func() {
-		Convey("Value Should Be *TestType1", func() {
+		Convey("v1 Should Be *TestType1", func() {
 			So(reflect.TypeOf(v1), ShouldEqual, reflect.TypeOf(&TestType1{}))
 		})
-		Convey("Value Should Be *TestType2", func() {
+		Convey("v2 Should Be *TestType2", func() {
 			So(reflect.TypeOf(v2), ShouldEqual, reflect.TypeOf(&TestType2{}))
+		})
+		Convey("v3 Should Be *TestType3", func() {
+			So(reflect.TypeOf(v3), ShouldEqual, reflect.TypeOf(&TestType3{}))
 		})
 	})
 	p.DestroyAll()
