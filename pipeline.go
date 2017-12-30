@@ -33,6 +33,7 @@ type Pipeline interface {
 	IsClosed() bool
 	Type() reflect.Type
 	Push(data interface{})
+	Connect(next Pipeline)
 }
 
 type Config struct {
@@ -47,7 +48,7 @@ type Config struct {
 
 type BasePipeline struct {
 	cfg     Config
-	next    map[reflect.Type]Pipeline
+	next    sync.Map
 	state   int32
 	stage   int32
 	buffer  *SafeChan
@@ -81,14 +82,14 @@ func basePipelineCreator(cfg *Config) (Pipeline, error) {
 		return nil, errors.New("pipeline pool size must greater than 0")
 	}
 	p.buffer = NewSafeChan(cfg.BufferSize, nil)
-	p.next = make(map[reflect.Type]Pipeline)
+	p.next = sync.Map{}
 	for _, c := range cfg.NextConfigs {
 		np, err := NewPipeline(c)
 		if err != nil {
 			p.CloseAll()
 			return nil, err
 		}
-		p.next[c.Type] = np
+		p.next.Store(c.Type, np)
 	}
 	p.state = stateOpened
 	for i := 0; i < p.cfg.PoolSize; i++ {
@@ -110,9 +111,16 @@ func (p *BasePipeline) CloseAll() {
 		return
 	}
 	p.Close()
-	for _, v := range p.next {
-		v.CloseAll()
-	}
+	p.next.Range(func(key, value interface{}) bool {
+		switch v := value.(type) {
+		case Pipeline:
+			v.CloseAll()
+		}
+		return true
+	})
+}
+
+func (p *BasePipeline) Connect(next Pipeline) {
 }
 
 func (p *BasePipeline) Type() reflect.Type {
@@ -175,14 +183,28 @@ func (p *BasePipeline) run() {
 		case stagePushing:
 			if reflect.TypeOf(data) == typeOfTask {
 				t := data.(Task)
-				np := p.next[reflect.TypeOf(t.getData())]
+				var np Pipeline = nil
+				val, ok := p.next.Load(reflect.TypeOf(t.getData()))
+				if ok {
+					switch v := val.(type) {
+					case Pipeline:
+						np = v
+					}
+				}
 				if np != nil {
 					np.Push(data)
 				} else {
 					t.finish()
 				}
 			} else {
-				np := p.next[reflect.TypeOf(data)]
+				var np Pipeline = nil
+				val, ok := p.next.Load(reflect.TypeOf(data))
+				if ok {
+					switch v := val.(type) {
+					case Pipeline:
+						np = v
+					}
+				}
 				if np != nil {
 					np.Push(data)
 				}
