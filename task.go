@@ -5,7 +5,7 @@ import "sync/atomic"
 //Task is used to perform a sync request in pipeline
 type Task struct {
 	finished int32
-	ch       *SafeChan
+	ch       *Chan
 	data     interface{}
 	auto     bool
 }
@@ -25,7 +25,7 @@ type Task struct {
 //  result := <-t.Chan()  //or using  result := t.Wait()
 func NewTask(data interface{}, auto bool) Task {
 	t := Task{
-		ch:       NewSafeChan(1, nil),
+		ch:       MakeChan(1),
 		finished: 0,
 		data:     data,
 		auto:     auto,

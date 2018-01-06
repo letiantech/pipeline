@@ -71,5 +71,5 @@ func main() {
 	v2 := <-ch2
 	fmt.Println(v1)
 	fmt.Println(v2)
-	p.DestroyAll()
+	p.CloseAll()
 }

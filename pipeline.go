@@ -51,7 +51,7 @@ type BasePipeline struct {
 	next    sync.Map
 	state   int32
 	stage   int32
-	buffer  *SafeChan
+	buffer  *Chan
 	wg      sync.WaitGroup
 	limiter Limiter
 }
@@ -81,7 +81,7 @@ func basePipelineCreator(cfg *Config) (Pipeline, error) {
 	if p.cfg.PoolSize < 1 {
 		return nil, errors.New("pipeline pool size must greater than 0")
 	}
-	p.buffer = NewSafeChan(cfg.BufferSize, nil)
+	p.buffer = MakeChan(cfg.BufferSize)
 	p.next = sync.Map{}
 	for _, c := range cfg.NextConfigs {
 		np, err := NewPipeline(c)

@@ -1,55 +1,63 @@
+// Copyright 2017 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package pipeline
 
 import (
 	"errors"
-	"reflect"
 	"sync"
 	"sync/atomic"
 )
 
-//SafeChan is used to avoid the panic when sending data to a closed channel
-type SafeChan struct {
-	closed int32
-	ch     chan interface{}
-	rt     reflect.Type
-	wg     sync.WaitGroup
+const (
+	chanOpened = iota
+	chanClosed
+)
+
+// Chan is a concurrent channel to avoid the panic when sending data to a closed channel.
+// It is safe for multiple goroutines to call a Chan's methods concurrently.
+type Chan struct {
+	// status is used to mark the status of channel.
+	// It is set to chanOpened after created, and set to chanClosed before close.
+	status int32
+
+	// ch is the real channel of Chan.
+	ch chan interface{}
+
+	// wg is used to count sending data.
+	// Before data is sent, do wg.Add(1).
+	// After data is sent, do wg.Done().
+	// Before close channel, do wg.Wait() to make sure all sending data are sent to channel.
+	wg sync.WaitGroup
 }
 
-//Create a new SafeChan. If rt is nil, means any type data can be send to it
-func NewSafeChan(size int, rt reflect.Type) *SafeChan {
+// Create a new SafeChan. If rt is nil, means any type data can be send to it.
+func MakeChan(size int) *Chan {
 	if size < 0 {
 		return nil
 	}
-	sc := &SafeChan{
-		closed: 0,
+	sc := &Chan{
+		status: chanOpened,
 		ch:     make(chan interface{}, size),
-		rt:     rt,
 	}
 	return sc
 }
 
-//Get the real channel
-func (c *SafeChan) Chan() <-chan interface{} {
+// Get the read-only channel
+func (c *Chan) Chan() <-chan interface{} {
 	return c.ch
 }
 
-//Get the data type of channel
-func (c *SafeChan) Type() reflect.Type {
-	return c.rt
+// Check if the channel is closed
+func (c *Chan) IsClosed() bool {
+	return atomic.LoadInt32(&c.status) != chanOpened
 }
 
-//Check if the channel is closed
-func (c *SafeChan) IsClosed() bool {
-	return atomic.LoadInt32(&c.closed) != 0
-}
-
-//Push data into channel
-func (c *SafeChan) Push(data interface{}) error {
+// Push data into channel
+func (c *Chan) Push(data interface{}) error {
 	if c.IsClosed() {
 		return errors.New("channel is closed")
-	}
-	if c.rt != nil && reflect.TypeOf(data) != c.rt {
-		return errors.New("data type different with channel type")
 	}
 	c.wg.Add(1)
 	c.ch <- data
@@ -57,21 +65,21 @@ func (c *SafeChan) Push(data interface{}) error {
 	return nil
 }
 
-//Get data from channel
-func (c *SafeChan) Get() interface{} {
+// Get data from channel
+func (c *Chan) Get() interface{} {
 	return <-c.ch
 }
 
-//Close channel
-func (c *SafeChan) Close() {
-	//mark channel as closed
-	if !atomic.CompareAndSwapInt32(&c.closed, 0, 1) {
+// Close channel
+func (c *Chan) Close() {
+	// mark channel as closed
+	if !atomic.CompareAndSwapInt32(&c.status, chanOpened, chanClosed) {
 		return
 	}
 	go closeChan(c)
 }
 
-func closeChan(c *SafeChan) {
+func closeChan(c *Chan) {
 	// avoid panic when send data
 	c.wg.Wait()
 	close(c.ch)
