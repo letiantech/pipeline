@@ -184,7 +184,7 @@ func (p *BasePipeline) run() {
 			}
 			stage = stageGetting
 		case stageGetting:
-			data = p.buffer.Get()
+			data = p.buffer.Pull()
 			stage = stageExecuting
 			if data == nil {
 				stage = stageExiting

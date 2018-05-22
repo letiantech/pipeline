@@ -35,10 +35,9 @@ const (
 //Limiter is used to limit speed of pipeline
 //by providing a time duration
 type Limiter struct {
-	duration  int64
-	nextTime  int64
-	speed     float32
-	unlimited int32
+	duration int64
+	nextTime int64
+	speed    float32
 }
 
 //create a new limiter and set its speed

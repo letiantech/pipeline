@@ -64,7 +64,7 @@ func (t *Task) Chan() <-chan interface{} {
 
 //Wait the result of a task
 func (t *Task) Wait() interface{} {
-	return t.ch.Get()
+	return t.ch.Pull()
 }
 
 //Destroy a finished task

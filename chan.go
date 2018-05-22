@@ -27,8 +27,8 @@ import (
 )
 
 const (
-	chanOpened = iota
-	chanClosed
+	chanClosed = iota
+	chanOpened
 )
 
 // Chan is a concurrent channel to avoid the panic when sending data to a closed channel.
@@ -48,16 +48,19 @@ type Chan struct {
 	wg sync.WaitGroup
 }
 
-// Create a new SafeChan. If rt is nil, means any type data can be send to it.
+// Create a new Chan.
 func MakeChan(size int) *Chan {
+	c := &Chan{}
+	c.Init(size)
+	return c
+}
+
+func (c *Chan) Init(size int) {
 	if size < 0 {
-		return nil
+		size = 0
 	}
-	sc := &Chan{
-		status: chanOpened,
-		ch:     make(chan interface{}, size),
-	}
-	return sc
+	c.ch = make(chan interface{}, size)
+	c.status = chanOpened
 }
 
 // Get the read-only channel
@@ -81,8 +84,8 @@ func (c *Chan) Push(data interface{}) error {
 	return nil
 }
 
-// Get data from channel
-func (c *Chan) Get() interface{} {
+// Pull data from channel
+func (c *Chan) Pull() interface{} {
 	return <-c.ch
 }
 
