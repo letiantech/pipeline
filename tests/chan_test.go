@@ -43,7 +43,7 @@ func TestChanPushGet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err.Error())
 	}
-	d := testChan.Get()
+	d := testChan.Pull()
 	if d == nil {
 		t.Fatal("data is nil")
 	}
@@ -78,7 +78,7 @@ func TestChanClosePush(t *testing.T) {
 	if err == nil {
 		t.Fatal("sync channel is not closed")
 	}
-	switch v := testChan.Get().(type) {
+	switch v := testChan.Pull().(type) {
 	case int64:
 		if v != data1 {
 			t.Fatal("data value not match")

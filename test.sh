@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 dir=$(dirname $0)
 cd $dir
 
