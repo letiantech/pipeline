@@ -21,6 +21,7 @@
 package pipeline
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 )
@@ -30,27 +31,32 @@ const (
 	pumpStatusRunning
 )
 
-type Filter func(in interface{}) (out interface{}, tag string)
+type Filter func(in Data) Data
+
+func DefaultFilter(in Data) Data {
+	return in
+}
 
 type Pump interface {
-	Init(source Source, filter Filter) Pump
+	Init(source Source) Pump
 	Start()
 	Stop()
-	BindSink(sink Sink, tag string)
+	AddFilter(filter Filter, tag string)
+	AddSink(sink Sink, tag string)
 }
 
 type BasePump struct {
 	sync.RWMutex
-	status int32
-	source Source
-	filter Filter
-	sinks  map[string]Sink
+	status  int32
+	source  Source
+	filters map[string]Filter
+	sinks   map[string]Sink
 }
 
-func (bp *BasePump) Init(source Source, filter Filter) Pump {
+func (bp *BasePump) Init(source Source) Pump {
 	bp.source = source
-	bp.filter = filter
 	bp.sinks = make(map[string]Sink)
+	bp.filters = make(map[string]Filter)
 	return bp
 }
 
@@ -65,10 +71,16 @@ func (bp *BasePump) Stop() {
 	atomic.StoreInt32(&bp.status, pumpStatusStopped)
 }
 
-func (bp *BasePump) BindSink(sink Sink, tag string) {
+func (bp *BasePump) AddSink(sink Sink, tag string) {
 	bp.Lock()
 	defer bp.Unlock()
 	bp.sinks[tag] = sink
+}
+
+func (bp *BasePump) AddFilter(filter Filter, tag string) {
+	bp.Lock()
+	defer bp.Unlock()
+	bp.filters[tag] = filter
 }
 
 func (bp *BasePump) run() {
@@ -78,12 +90,24 @@ func (bp *BasePump) run() {
 		if data == nil {
 			break
 		}
-		out, tag := bp.filter(data)
 		bp.RLock()
-		p, ok := bp.sinks[tag]
+		filter, ok := bp.filters[data.Tag()]
 		bp.RUnlock()
-		if ok && out != nil {
-			err := p.Push(out)
+		if !ok {
+			filter = DefaultFilter
+		}
+		out := filter(data)
+		if out != nil {
+			bp.RLock()
+			s, ok := bp.sinks[out.Tag()]
+			bp.RUnlock()
+			if !ok {
+				continue
+			}
+			err := s.Push(out)
+			if err != nil {
+				fmt.Println(err)
+			}
 			var _ = err
 		}
 		if atomic.LoadInt32(&bp.status) != pumpStatusRunning {

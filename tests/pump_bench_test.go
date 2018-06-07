@@ -18,41 +18,51 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package pipeline_test
+package test
 
 import (
 	"testing"
+
 	"time"
 
 	"github.com/letiantech/pipeline"
 )
 
-func TestPipe(t *testing.T) {
-	const speedIn = 100
-	const speedOut = 50
-	const count = 300
-	const size = 2
-	p := new(pipeline.BasePipe).Init(size)
-	minSpeed := speedIn
-	if minSpeed > speedOut {
-		minSpeed = speedOut
+type TestType struct {
+	A int
+}
+
+func (tt *TestType) Tag() string {
+	return "TestType"
+}
+
+var ch = make(chan pipeline.Data, 1000)
+
+func filter(data pipeline.Data) pipeline.Data {
+	if task, ok := data.(pipeline.Task); ok {
+		ch <- task.GetData()
+		task.Finish()
 	}
-	source := p.GetSource()
-	sink := p.GetSink()
-	source.SetSpeed(speedOut)
-	sink.SetSpeed(speedIn)
+	return nil
+}
+
+// BenchmarkPump is used to run benchmark test for pipeline.Pump
+func BenchmarkPump(b *testing.B) {
 	go func() {
-		for i := 0; i < count; i++ {
-			sink.Push(i)
+		tag := (&TestType{}).Tag()
+		pipe := new(pipeline.BasePipe).Init(100)
+		p := new(pipeline.BasePump).Init(pipe.GetSource())
+		p.AddFilter(filter, tag)
+		p.Start()
+		b.ResetTimer()
+		var task pipeline.Task
+		for i := 0; i < b.N; i++ {
+			data0 := &TestType{A: i}
+			task = pipeline.NewTask(data0, time.Second)
+			pipe.Push(task)
 		}
 	}()
-	start := time.Now().Unix()
-	for j := 0; j < count; j++ {
-		source.Pull()
+	for i := 0; i < b.N; i++ {
+		_ = <-ch
 	}
-	end := time.Now().Unix()
-	if int(end-start+1) < count/minSpeed {
-		t.Fatal(end-start, count/minSpeed)
-	}
-	t.Log(start, end)
 }

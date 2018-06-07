@@ -21,21 +21,25 @@
 package pipeline
 
 import (
+	"errors"
 	"time"
 )
 
 type Sink interface {
-	Push(data interface{}) error
+	Push(data Data) error
 	SetSpeed(speed float32)
 }
 
 type Source interface {
-	Pull() interface{}
+	Pull() Data
 	SetSpeed(speed float32)
 }
 
 type Pipe interface {
 	Init(size int) Pipe
+	Push(data Data) error
+	Pull() Data
+	SetSpeed(speed float32)
 	GetSource() Source
 	GetSink() Sink
 	Close()
@@ -46,11 +50,14 @@ type source struct {
 	*Limiter
 }
 
-func (s *source) Pull() interface{} {
+func (s *source) Pull() Data {
 	if duration := s.Update(); duration > 0 {
 		time.Sleep(duration)
 	}
-	return s.ch.Pull()
+	if data, ok := s.ch.Pull().(Data); ok {
+		return data
+	}
+	return nil
 }
 
 type sink struct {
@@ -58,7 +65,10 @@ type sink struct {
 	*Limiter
 }
 
-func (s *sink) Push(data interface{}) error {
+func (s *sink) Push(data Data) error {
+	if data == nil {
+		return errors.New("data is nil")
+	}
 	if duration := s.Update(); duration > 0 {
 		time.Sleep(duration)
 	}
@@ -76,6 +86,19 @@ func (bp *BasePipe) Init(size int) Pipe {
 		bp.ch = MakeChan(size)
 	}
 	return bp
+}
+
+func (bp *BasePipe) Push(data Data) error {
+	return bp.GetSink().Push(data)
+}
+
+func (bp *BasePipe) Pull() Data {
+	return bp.GetSource().Pull()
+}
+
+func (bp *BasePipe) SetSpeed(speed float32) {
+	bp.GetSource().SetSpeed(speed)
+	bp.GetSink().SetSpeed(speed)
 }
 
 func (bp *BasePipe) GetSource() Source {

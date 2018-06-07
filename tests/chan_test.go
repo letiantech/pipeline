@@ -57,6 +57,7 @@ func TestChanPushGet(t *testing.T) {
 		t.Fatal("data type not match")
 	}
 	testChan.Close()
+	t.Log("ok")
 }
 
 // test push after channel is closed
@@ -92,4 +93,5 @@ func TestChanClosePush(t *testing.T) {
 		t.Fatal("channel is not closed")
 	}
 	testChan = nil
+	t.Log("ok")
 }

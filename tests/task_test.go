@@ -21,40 +21,38 @@
 package test
 
 import (
-	"fmt"
-	"reflect"
-	"runtime"
 	"testing"
+	"time"
 
 	"github.com/letiantech/pipeline"
 )
 
-// BenchmarkPipeline is used to run benchmark test for pipeline.PipeLine
-func BenchmarkPipeline(b *testing.B) {
-	type TestType struct {
-		A int
+type testTaskData struct {
+	A int
+}
+
+func (tt *testTaskData) Tag() string {
+	return "testTask"
+}
+
+func TestTask(t *testing.T) {
+	data := &testTaskData{
+		A: 1,
 	}
-	cfg := &pipeline.Config{
-		Name:       "base",
-		BufferSize: 100,
-		PoolSize:   runtime.GOMAXPROCS(0),
-		Type:       reflect.TypeOf(&TestType{}),
-		Func: func(data interface{}) interface{} {
-			return data
-		},
+	task := pipeline.NewTask(data, 100*time.Millisecond)
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		task.Finish()
+	}()
+	select {
+	case _ = <-task.Finished():
+		t.Log("finished")
+	case _ = <-task.Canceled():
+		t.Log("canceled")
 	}
-	p, err := pipeline.NewPipeline(cfg)
-	if err != nil {
-		fmt.Println(err)
-		return
+	data1 := task.GetData()
+	if _, ok := data1.(*testTaskData); !ok {
+		t.Fatal("failed")
 	}
-	b.ResetTimer()
-	var task pipeline.Task
-	for i := 0; i < b.N; i++ {
-		data0 := &TestType{A: i}
-		task = pipeline.NewTask(data0, true)
-		p.Push(task)
-	}
-	<-task.Chan()
-	p.CloseAll()
+	t.Log("ok")
 }

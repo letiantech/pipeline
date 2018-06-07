@@ -85,40 +85,40 @@ func initSyncChan() *pipeline.Chan {
 	return ch
 }
 
-func BenchmarkChan(t *testing.B) {
+func BenchmarkChan(b *testing.B) {
 	ch := initChan()
-	t.ResetTimer()
-	benchTest(int64(t.N), func(j int64) {
+	b.ResetTimer()
+	benchTest(int64(b.N), func(j int64) {
 		ch <- j
 	}, func() {
 		close(ch)
 	})
 }
 
-func BenchmarkSyncChan(t *testing.B) {
+func BenchmarkSyncChan(b *testing.B) {
 	ch := initSyncChan()
-	t.ResetTimer()
-	benchTest(int64(t.N), func(j int64) {
+	b.ResetTimer()
+	benchTest(int64(b.N), func(j int64) {
 		ch.Push(j)
 	}, func() {
 		ch.Close()
 	})
 }
 
-func BenchmarkChanConcurrently(t *testing.B) {
+func BenchmarkChanConcurrently(b *testing.B) {
 	ch := initChan()
-	t.ResetTimer()
-	benchTestConcurrently(int64(t.N), func(j int64) {
+	b.ResetTimer()
+	benchTestConcurrently(int64(b.N), func(j int64) {
 		ch <- j
 	}, func() {
 		close(ch)
 	})
 }
 
-func BenchmarkSyncChanConcurrently(t *testing.B) {
+func BenchmarkSyncChanConcurrently(b *testing.B) {
 	ch := initSyncChan()
-	t.ResetTimer()
-	benchTestConcurrently(int64(t.N), func(j int64) {
+	b.ResetTimer()
+	benchTestConcurrently(int64(b.N), func(j int64) {
 		ch.Push(j)
 	}, func() {
 		ch.Close()

@@ -20,75 +20,98 @@
 
 package pipeline
 
-import "sync/atomic"
+import (
+	"context"
+	"sync"
+	"sync/atomic"
+	"time"
+)
 
-//Task is used to perform a sync request in pipeline
-type Task struct {
-	finished int32
-	ch       *Chan
-	data     interface{}
-	auto     bool
+type Data interface {
+	Tag() string
+}
+
+type Task interface {
+	Update(Data)
+	GetData() Data
+	Finish()
+	Finished() <-chan struct{}
+	Cancel()
+	Canceled() <-chan struct{}
+	Tag() string
+}
+
+type task struct {
+	sync.RWMutex
+	ctx        context.Context
+	cancel     context.CancelFunc
+	isFinished int32
+	isCanceled int32
+	finished   chan struct{}
+	data       Data
 }
 
 // Create new task by data.
 //
-// Notice:
-// If auto is true, the task will close the channel of task automatic when finished.
-// If auto is false, you must close the channel by using t.Destroy()
-//
 // Example:
 //  //create new task
-//  t := NewTask(data, true)
-//  //push the task into a pipeline
-//  pl.Push(t)
-//  //wait the result
-//  result := <-t.Chan()  //or using  result := t.Wait()
-func NewTask(data interface{}, auto bool) Task {
-	t := Task{
-		ch:       MakeChan(1),
-		finished: 0,
-		data:     data,
-		auto:     auto,
+//  t := NewTask(data, 100 * time.Millisecond)
+func NewTask(data Data, timeout time.Duration) Task {
+	if data == nil {
+		return nil
+	}
+	ctx, cancelFunc := context.WithTimeout(context.Background(), timeout)
+	t := &task{
+		ctx:        ctx,
+		cancel:     cancelFunc,
+		data:       data,
+		finished:   make(chan struct{}, 0),
+		isFinished: 0,
+		isCanceled: 0,
 	}
 	return t
 }
 
-// Get the result channel of a task.
-//
-// Notice:
-// The result channel of a task will be closed automatic when finished,
-// so be careful when waiting multi channel by using select in a loop
-func (t *Task) Chan() <-chan interface{} {
-	return t.ch.Chan()
-}
-
-//Wait the result of a task
-func (t *Task) Wait() interface{} {
-	return t.ch.Pull()
-}
-
-//Destroy a finished task
-func (t *Task) Destroy() {
-	t.ch.Close()
-}
-
 //get the data of task
-func (t *Task) getData() interface{} {
-	return t.data
+func (t *task) GetData() Data {
+	t.RLock()
+	defer t.RUnlock()
+	data := t.data
+	return data
+}
+
+func (t *task) Tag() string {
+	return t.data.Tag()
 }
 
 //update the data of task
-func (t *Task) update(data interface{}) {
+func (t *task) Update(data Data) {
+	t.Lock()
+	defer t.Unlock()
 	t.data = data
 }
 
-//finish task. If auto is true, close channel automatic.
-func (t *Task) finish() {
-	if !atomic.CompareAndSwapInt32(&t.finished, 0, 1) {
+func (t *task) Cancel() {
+	if !atomic.CompareAndSwapInt32(&t.isCanceled, 0, 1) {
 		return
 	}
-	t.ch.Push(t.data)
-	if t.auto {
-		t.ch.Close()
+	t.cancel()
+}
+
+func (t *task) Canceled() <-chan struct{} {
+	if _, ok := t.ctx.Deadline(); ok {
+		atomic.CompareAndSwapInt32(&t.isCanceled, 0, 1)
 	}
+	return t.ctx.Done()
+}
+
+func (t *task) Finish() {
+	if !atomic.CompareAndSwapInt32(&t.isFinished, 0, 1) {
+		return
+	}
+	close(t.finished)
+}
+
+func (t *task) Finished() <-chan struct{} {
+	return t.finished
 }

@@ -18,80 +18,106 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package pipeline_test
+package test
 
 import (
-	"testing"
-
 	"reflect"
-
 	"strconv"
-
 	"sync"
+	"testing"
 
 	"github.com/letiantech/pipeline"
 )
 
-func TestPump(t *testing.T) {
-	pipe0 := new(pipeline.BasePipe).Init(10)
-	pipe1 := new(pipeline.BasePipe).Init(10)
-	pipe2 := new(pipeline.BasePipe).Init(10)
-	source0 := pipe0.GetSource()
-	source1 := pipe1.GetSource()
-	source2 := pipe2.GetSource()
-	sink0 := pipe0.GetSink()
-	sink1 := pipe1.GetSink()
-	sink2 := pipe2.GetSink()
-	p := new(pipeline.BasePump).Init(source0, func(data interface{}) (interface{}, string) {
-		return data, reflect.TypeOf(data).String()
-	})
-	const speedIn = 100
-	const speedOut = 50
-	const count = 300
-	var typeOfInt = reflect.TypeOf(int(1)).String()
-	var typeOfStr = reflect.TypeOf("").String()
-	minSpeed := speedIn
-	if minSpeed > speedOut {
-		minSpeed = speedOut
+type tA struct {
+	s string
+}
+
+func (a *tA) Tag() string {
+	return reflect.TypeOf(a).String()
+}
+
+type tB struct {
+	s string
+}
+
+func (b *tB) Tag() string {
+	return reflect.TypeOf(b).String()
+}
+
+func dataFilter(data pipeline.Data) pipeline.Data {
+	switch v := data.(type) {
+	case *tB:
+		return &tA{
+			s: v.s,
+		}
+	case *tA:
+		return &tB{
+			s: v.s,
+		}
 	}
-	source0.SetSpeed(speedOut)
-	source1.SetSpeed(speedOut)
-	source2.SetSpeed(speedOut)
-	sink0.SetSpeed(speedIn)
-	sink1.SetSpeed(speedIn)
-	sink2.SetSpeed(speedIn)
-	p.BindSink(sink1, typeOfInt)
-	p.BindSink(sink2, typeOfStr)
+	return nil
+}
+
+func TestPump(t *testing.T) {
+	const speedIn = 100
+	const speedOut = 500
+	const count = 300
+	pipes := []pipeline.Pipe{
+		new(pipeline.BasePipe).Init(10),
+		new(pipeline.BasePipe).Init(10),
+		new(pipeline.BasePipe).Init(10),
+	}
+	sources := make([]pipeline.Source, len(pipes))
+	sinks := make([]pipeline.Sink, len(pipes))
+	for i := 0; i < len(pipes); i++ {
+		sources[i] = pipes[i].GetSource()
+		sinks[i] = pipes[i].GetSink()
+		sources[i].SetSpeed(speedOut)
+		sinks[i].SetSpeed(speedIn)
+	}
+	at := (&tA{}).Tag()
+	bt := (&tB{}).Tag()
+	p := new(pipeline.BasePump).Init(sources[0])
+	p.AddSink(sinks[1], at)
+	p.AddSink(sinks[2], bt)
+	p.AddFilter(dataFilter, at)
+	p.AddFilter(dataFilter, bt)
 	p.Start()
 	wg := sync.WaitGroup{}
 	go func() {
 		wg.Add(1)
-		for i := 0; i < count/2; i++ {
-			sink0.Push(int(i))
-		}
-		wg.Done()
-	}()
-	go func() {
-		wg.Add(1)
-		for i := 0; i < count/2; i++ {
-			sink0.Push(strconv.Itoa(i))
-		}
-		wg.Done()
-	}()
-	go func() {
-		wg.Add(1)
-		for j := 0; j < count/2; j++ {
-			tp := reflect.TypeOf(source1.Pull()).String()
-			if tp != typeOfInt {
-				t.Fatal(tp)
+		for i := 0; i < count; i++ {
+			if i%2 == 0 {
+				a := &tA{
+					s: strconv.Itoa(i),
+				}
+				sinks[0].Push(a)
+			} else {
+				b := &tB{
+					s: strconv.Itoa(i),
+				}
+				sinks[0].Push(b)
 			}
 		}
 		wg.Done()
 	}()
-	for j := 0; j < count/2; j++ {
-		tp := reflect.TypeOf(source2.Pull()).String()
-		if tp != typeOfStr {
-			t.Fatal(tp)
+	go func() {
+		wg.Add(1)
+		for j := 0; j < count/2-1; j++ {
+			data := sources[1].Pull()
+			tag := data.Tag()
+			if tag != at {
+				t.Fatal(tag)
+			}
+		}
+		wg.Done()
+	}()
+	for j := 0; j < count/2-1; j++ {
+		data := sources[2].Pull()
+		tag := data.Tag()
+		if tag != bt {
+			t.Fatal(tag)
 		}
 	}
 	wg.Wait()
