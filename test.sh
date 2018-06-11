@@ -9,7 +9,7 @@ rm -rf test.log
 
 runtest(){
     go test tests/*
-    go test -cover -covermode=set -coverpkg=$pkg tests/*
+    go test -cover -covermode=set -coverpkg="." tests/*
     go test -bench="." tests/*
 }
 
