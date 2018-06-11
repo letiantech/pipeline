@@ -43,12 +43,12 @@ type Task interface {
 
 type task struct {
 	sync.RWMutex
+	Data
 	ctx        context.Context
 	cancel     context.CancelFunc
 	isFinished int32
 	isCanceled int32
 	finished   chan struct{}
-	data       Data
 }
 
 // Create new task by data.
@@ -64,7 +64,7 @@ func NewTask(data Data, timeout time.Duration) Task {
 	t := &task{
 		ctx:        ctx,
 		cancel:     cancelFunc,
-		data:       data,
+		Data:       data,
 		finished:   make(chan struct{}, 0),
 		isFinished: 0,
 		isCanceled: 0,
@@ -76,19 +76,14 @@ func NewTask(data Data, timeout time.Duration) Task {
 func (t *task) GetData() Data {
 	t.RLock()
 	defer t.RUnlock()
-	data := t.data
-	return data
-}
-
-func (t *task) Tag() string {
-	return t.data.Tag()
+	return t.Data
 }
 
 //update the data of task
 func (t *task) Update(data Data) {
 	t.Lock()
 	defer t.Unlock()
-	t.data = data
+	t.Data = data
 }
 
 func (t *task) Cancel() {
