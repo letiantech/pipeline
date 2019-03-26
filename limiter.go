@@ -29,59 +29,62 @@ const (
 	//the slowest limited speed
 	MinLimitedSpeed = 0.001
 	//the fastest limited speed
-	MaxLimitedSpeed = 1000.0
+	MaxLimitedSpeed = 100000.0
 )
 
 //Limiter is used to limit speed of pipeline
 //by providing a time duration
 type Limiter struct {
 	duration int64
+	lastTime int64
 	nextTime int64
-	speed    float32
+	speed    int64
 }
 
 //create a new limiter and set its speed
-func NewLimiter(speed float32) *Limiter {
-	l := &Limiter{
-		nextTime: time.Now().UnixNano() / int64(time.Millisecond),
-	}
+func NewLimiter(speed float64) *Limiter {
+	l := &Limiter{}
 	l.SetSpeed(speed)
 	return l
 }
 
 //update the time duration of limiter
 func (l *Limiter) Update() time.Duration {
+	now := time.Now().UnixNano()
 	duration := atomic.LoadInt64(&l.duration)
 	if duration <= 0 {
 		return 0
 	}
-	now := time.Now().UnixNano() / int64(time.Millisecond)
-	nextTime := atomic.LoadInt64(&l.nextTime)
-	delta := now - nextTime
-	if delta > 0 {
-		if delta >= duration {
-			nextTime = now + duration/4
-		} else {
-			nextTime = now + duration - delta
-		}
-		delta = 0
-	} else {
-		nextTime = now + duration
-		delta = -delta
+	atomic.CompareAndSwapInt64(&l.nextTime, 0, now)
+	nextTime := atomic.AddInt64(&l.nextTime, duration)
+	waitTime := nextTime - now
+	if waitTime > duration {
+		waitTime = (waitTime + duration) / 2
+	} else if waitTime < -duration {
+		waitTime = 0
+	} else if waitTime < 0 {
+		waitTime = (duration - waitTime) / 2
 	}
-	atomic.StoreInt64(&l.nextTime, nextTime)
-	return time.Duration(delta)
+	return time.Duration(waitTime)
 }
 
 //set speed of limiter
-func (l *Limiter) SetSpeed(speed float32) {
-	if speed < 0 || speed > MaxLimitedSpeed {
+func (l *Limiter) SetSpeed(speed float64) {
+	if speed <= 0 {
 		atomic.StoreInt64(&l.duration, 0)
 		return
 	}
 	if speed < MinLimitedSpeed {
 		speed = MinLimitedSpeed
 	}
+	atomic.StoreInt64(&l.speed, int64(speed*1000))
+	if speed < 1 {
+		atomic.StoreInt64(&l.duration, int64(time.Second*1000)/int64(1000.0*speed))
+	} else {
+		atomic.StoreInt64(&l.duration, int64(time.Second)/int64(speed))
+	}
+}
 
-	atomic.StoreInt64(&l.duration, int64(time.Second*1000)/int64(1000.0*speed))
+func (l *Limiter) Speed() float32 {
+	return float32(atomic.LoadInt64(&l.speed)) / 1000.0
 }

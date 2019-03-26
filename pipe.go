@@ -27,19 +27,19 @@ import (
 
 type Sink interface {
 	Push(data Data) error
-	SetSpeed(speed float32)
+	SetSpeed(speed float64)
 }
 
 type Source interface {
 	Pull() Data
-	SetSpeed(speed float32)
+	SetSpeed(speed float64)
 }
 
 type Pipe interface {
 	Init(size int) Pipe
 	Push(data Data) error
 	Pull() Data
-	SetSpeed(speed float32)
+	SetSpeed(speed float64)
 	GetSource() Source
 	GetSink() Sink
 	Close()
@@ -96,7 +96,7 @@ func (bp *BasePipe) Pull() Data {
 	return bp.GetSource().Pull()
 }
 
-func (bp *BasePipe) SetSpeed(speed float32) {
+func (bp *BasePipe) SetSpeed(speed float64) {
 	bp.GetSource().SetSpeed(speed)
 	bp.GetSink().SetSpeed(speed)
 }

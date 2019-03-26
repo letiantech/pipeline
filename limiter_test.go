@@ -18,51 +18,46 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package test
+package pipeline_test
 
 import (
+	"math/rand"
 	"testing"
-
 	"time"
 
 	"github.com/letiantech/pipeline"
 )
 
-type TestType struct {
-	A int
-}
-
-func (tt *TestType) Tag() string {
-	return "TestType"
-}
-
-var ch = make(chan pipeline.Data, 1000)
-
-func filter(data pipeline.Data) pipeline.Data {
-	if task, ok := data.(pipeline.Task); ok {
-		ch <- task.GetData()
-		task.Finish()
+func TestLimiter(t *testing.T) {
+	var testParams = []struct {
+		speed float64
+		count int
+		exp   bool
+	}{
+		{-1, 100, false},
+		{20, 100, true},
+		{0.6, 3, true},
+		{100000, 500000, true},
+		{200000, 500000, true},
 	}
-	return nil
+	for _, v := range testParams {
+		testFunc(t, v.speed, v.count, v.exp)
+	}
 }
 
-// BenchmarkPump is used to run benchmark test for pipeline.Pump
-func BenchmarkPump(b *testing.B) {
-	go func() {
-		tag := (&TestType{}).Tag()
-		pipe := new(pipeline.BasePipe).Init(100)
-		p := new(pipeline.BasePump).Init(pipe.GetSource())
-		p.AddFilter(filter, tag)
-		p.Start()
-		b.ResetTimer()
-		var task pipeline.Task
-		for i := 0; i < b.N; i++ {
-			data0 := &TestType{A: i}
-			task = pipeline.NewTask(data0, time.Second)
-			pipe.Push(task)
+func testFunc(t *testing.T, speed float64, count int, exp bool) {
+	l := pipeline.NewLimiter(speed)
+	start := time.Now().UnixNano()
+	rand.Seed(time.Now().UnixNano())
+	for i := 0; i < count; i++ {
+		tm := l.Update()
+		if tm != 0 {
+			time.Sleep(tm)
 		}
-	}()
-	for i := 0; i < b.N; i++ {
-		_ = <-ch
+	}
+	end := time.Now().UnixNano()
+	tm := (end - start) / int64(time.Second)
+	if (int(tm) == int(float32(count)/l.Speed())) != exp {
+		t.Fatal("failed", tm)
 	}
 }
