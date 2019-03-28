@@ -22,6 +22,7 @@ package pipeline_test
 
 import (
 	"math/rand"
+	"sync"
 	"testing"
 	"time"
 
@@ -58,6 +59,30 @@ func testFunc(t *testing.T, speed float64, count int, exp bool) {
 	end := time.Now().UnixNano()
 	tm := (end - start) / int64(time.Second)
 	if (int(tm) == int(float32(count)/l.Speed())) != exp {
+		t.Fatal("failed", tm)
+	}
+}
+
+func TestLimiterMulti(t *testing.T) {
+	count := 1000
+	speed := 100.0
+	wg := &sync.WaitGroup{}
+	wg.Add(count)
+	l := pipeline.NewLimiter(speed)
+	start := time.Now().UnixNano()
+	for i := 0; i < count; i++ {
+		go func() {
+			tm := l.Update()
+			if tm != 0 {
+				time.Sleep(tm)
+			}
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+	end := time.Now().UnixNano()
+	tm := (end - start) / int64(time.Second)
+	if int(tm) != int(float32(count)/l.Speed()) {
 		t.Fatal("failed", tm)
 	}
 }

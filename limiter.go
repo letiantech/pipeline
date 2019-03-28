@@ -50,20 +50,18 @@ func NewLimiter(speed float64) *Limiter {
 
 //update the time duration of limiter
 func (l *Limiter) Update() time.Duration {
-	now := time.Now().UnixNano()
 	duration := atomic.LoadInt64(&l.duration)
 	if duration <= 0 {
 		return 0
 	}
+	now := time.Now().UnixNano()
 	atomic.CompareAndSwapInt64(&l.nextTime, 0, now)
 	nextTime := atomic.AddInt64(&l.nextTime, duration)
 	waitTime := nextTime - now
-	if waitTime > duration {
-		waitTime = (waitTime + duration) / 2
-	} else if waitTime < -duration {
+	if waitTime < -duration {
 		waitTime = 0
 	} else if waitTime < 0 {
-		waitTime = (duration - waitTime) / 2
+		waitTime = duration + waitTime
 	}
 	return time.Duration(waitTime)
 }
